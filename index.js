@@ -29,9 +29,15 @@ function sendReadyForNextMessage(){
     },
   });
 };
+let isPaused = false
+
+let pausePromiseResolve;
+let pausePromise = new Promise((resolve) => {
+  pausePromiseResolve = resolve;
+});
 
 // mongoose.connect('mongodb://localhost:27017/sirene');
-mongoose.connect('mongodb+srv://yannmallolpro:1234@cluster0.j4o0v1g.mongodb.net/sirene').then(async () => {
+mongoose.connect('mongodb://localhost:27017/sirene').then(async () => {
     console.log('Connecté à MongoDB Atlas');
   }).catch((err) => {
     console.error('Erreur de connexion à MongoDB Atlas:', err);
@@ -39,18 +45,26 @@ mongoose.connect('mongodb+srv://yannmallolpro:1234@cluster0.j4o0v1g.mongodb.net/
 
 process.on('message', (message) => {
   console.log('Message reçu du processus parent:', message);
-  
-  if (message.type === 'process:msg' && message.data && message.data.message != "stop") {
+  if(message.type === 'process:actionPause'){
+    isPaused = message.data.message == "pause" ? true: false;
+    if (!isPaused) {
+      pausePromiseResolve(); // Reprendre le traitement
+    } else {
+      pausePromise = new Promise((resolve) => {
+        pausePromiseResolve = resolve; // Redéfinir pour permettre une reprise future
+      });
+    }
+  }else if (message.type === 'process:msg' && message.data && message.data.message != "stop") {
     console.log('Contenu du message:', message.data);
     
-    const csvDirectory = './outputTest';
+    const csvDirectory = './output';
     //const csvDirectory = './outputTest';
     const filePath = path.join(csvDirectory, message.data.message);
     const etablissements = []
     new Promise((resolve, reject) => {
       fs.createReadStream(filePath)
       .pipe(csv()) 
-      .on('data', (lineObject) => {
+      .on('data', async (lineObject) => {
         
         const etablissement = {
           siren: lineObject.siren,
@@ -67,8 +81,6 @@ process.on('message', (message) => {
           etatAdministratifEtablissement: lineObject.etatAdministratifEtablissement,
         };
         etablissements.push(etablissement);
-        console.log("reading")
-        
         
       }).on('end', () => {
         resolve(); // Indique que la lecture du CSV est terminée
@@ -76,6 +88,9 @@ process.on('message', (message) => {
         reject(err);
       });
     }).then(async () => {
+      if(isPaused){
+        await pausePromise; // Attendre que la pause soit annulée
+      }
       await Etablissement.insertMany(etablissements);
       sendReadyForNextMessage()
       console.log('Insertion réussie des données.');
@@ -84,6 +99,4 @@ process.on('message', (message) => {
     });
   }
 });
-
-//workder ready
 sendReadyForNextMessage()

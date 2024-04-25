@@ -1,6 +1,7 @@
 const pm2 = require('pm2')
 const fs = require('fs');
 const path = require('path');
+const readline = require('readline');
 
 const csvDirectory = './output';
 //const csvDirectory = './outputTest';
@@ -9,7 +10,7 @@ const workerArrayStopped = []
 let nbWorkers = 0;
 const startTime = new Date();
 
-function workderStoped(id_worker){
+function workerStoped(id_worker){
   workerArrayStopped.push(id_worker);
   if(nbWorkers == workerArrayStopped.length){
     const endTime = new Date();
@@ -19,8 +20,9 @@ function workderStoped(id_worker){
     process.exit();
   }
 }
-pm2.connect(function() {
 
+function startPm2(){
+  const startTime = new Date();
   pm2.start('process.json', (err, apps) => {
     if (err) {
       console.error('Erreur lors du démarrage des workers:', err);
@@ -61,9 +63,9 @@ pm2.connect(function() {
       }
   
       pm2_bus.on('reponse:msg', packet => {
-        console.log('Message reçu du processus:', packet);
+        // console.log('Message reçu du processus:', packet);
         if(files.length == 0){
-          workderStoped(packet.process.pm_id);
+          workerStoped(packet.process.pm_id);
         }
         pm2.sendDataToProcessId({
           id: packet.process.pm_id,
@@ -76,99 +78,84 @@ pm2.connect(function() {
           if (err) {
             console.error('Erreur lors de l\'envoi du message au processus:', err);
           } else {
-            console.log('Message envoyé:', res);
+           // console.log('Message envoyé:', res);
           }
         });
       });
     });
   });
-})
 
+}
 
-
-
-/**
- * 
- * 
- * 
-const pm2 = require('pm2');
-const readline = require('readline');
-
-// Interface de lecture pour écouter les commandes de la console
 const rl = readline.createInterface({
   input: process.stdin,
   output: process.stdout,
   terminal: false,
 });
 
-// Connexion à PM2
-pm2.connect((err) => {
-  if (err) {
-    console.error('Impossible de se connecter à PM2:', err);
-    process.exit(2);
-  }
+function sendToWorkers(message){
+    pm2.list((err, processDescriptionList) => {
+        if (err) {
+          console.error('Erreur lors de la récupération de la liste des processus:', err);
+          return;
+        }
+        const targetProcesses = processDescriptionList.filter(proc => proc.name === 'indexation-worker');
+        targetProcesses.forEach(proc => {
+          pm2.sendDataToProcessId({
+            id: proc.pm_id,
+            type: 'process:actionPause',
+            data: {
+              message: message
+            },
+            topic: 'Envoie action pause'
+          }, (err, res) => {
+            if (err) {
+              console.error('Erreur lors de l\'envoi du message au processus:', err);
+            } else {
+             console.log('Message envoyé:', res);
+            }
+          });
+        }); 
+      });
+}
+pm2.connect(function() {
+
+  stateWorker = ""
 
   console.log('PM2 connecté. Commandes disponibles :');
-  console.log('"start" pour démarrer les workers');
-  console.log('"stop" pour arrêter les workers');
-  console.log('"status" pour afficher le statut des workers');
+  console.log('"start" pour démarrer ou resume les workers');
+  console.log('"p" pour mettre en pause les workers');
+
 
   // Démarrer ou contrôler les workers en fonction de l'entrée utilisateur
   rl.on('line', (input) => {
     switch (input.trim()) {
       case 'start':
-        pm2.start('process.json', (err, apps) => {
-          if (err) {
-            console.error('Erreur lors du démarrage des workers:', err);
-          } else {
-            console.log('Workers démarrés avec succès.');
-          }
-        });
+        if(stateWorker == ""){
+            //premier lancement
+            stateWorker  = "started"
+            startPm2();
+        }else if(stateWorker =="pause"){
+            stateWorker  = "started"
+            sendToWorkers("restart")
+            // on redemare
+        }else{
+            console.log("les workers sont déja démarrés")
+        }
+        // ON envoie un message en disant stop
         break;
-
-      case 'stop':
-        pm2.stop('indexation-worker', (err) => {
-          if (err) {
-            console.error('Erreur lors de l\'arrêt des workers:', err);
-          } else {
-            console.log('Workers arrêtés.');
-          }
-        });
+      case 'p':
+        if(stateWorker == "started"){
+          // ON envoie un message en disant stop
+          stateWorker  = "pause"
+          sendToWorkers("pause")
+        }else{
+          console.log("les workers ne sont pas démarrés")
+        }
+        
         break;
-
-      case 'status':
-        pm2.list((err, processDescriptionList) => {
-          if (err) {
-            console.error('Erreur lors de l\'obtention du statut des workers:', err);
-          } else {
-            console.log('Statut des workers:', processDescriptionList);
-          }
-        });
-        break;
-
       default:
-        console.log('Commande non reconnue. Utilisez "start", "stop", ou "status".');
-	  pm2.sendDataToProcessId({
-			// id of process from "pm2 list" command or from pm2.list(errback) method
-			id   : 1,
-
-			// process:msg will be send as 'message' on target process
-			type : 'process:msg',
-
-			// Data to be sent
-			data : {
-			  some : 'data'
-			}
-		  }, function(err, res) {
-		  })
-		
-		pm2.launchBus(function(err, pm2_bus) {
-  pm2_bus.on('process:msg', function(packet) {
-    console.log(packet)
-  })
-})
-		
+        console.log('Commande non reconnue. Utilisez "start", "pause".');
     }
   });
-
- */
+})
