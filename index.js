@@ -37,7 +37,7 @@ let pausePromise = new Promise((resolve) => {
 });
 
 // mongoose.connect('mongodb://localhost:27017/sirene');
-mongoose.connect('mongodb://localhost:27017/sirene').then(async () => {
+mongoose.connect('mongodb+srv://yannmallolpro:1234@cluster0.j4o0v1g.mongodb.net/sirene').then(async () => {
     console.log('Connecté à MongoDB Atlas');
   }).catch((err) => {
     console.error('Erreur de connexion à MongoDB Atlas:', err);
@@ -57,7 +57,7 @@ process.on('message', (message) => {
   }else if (message.type === 'process:msg' && message.data && message.data.message != "stop") {
     console.log('Contenu du message:', message.data);
     
-    const csvDirectory = './output';
+    const csvDirectory = './outputTest';
     //const csvDirectory = './outputTest';
     const filePath = path.join(csvDirectory, message.data.message);
     const etablissements = []
