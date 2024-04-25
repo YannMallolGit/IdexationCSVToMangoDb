@@ -43,7 +43,7 @@ process.on('message', (message) => {
   if (message.type === 'process:msg' && message.data && message.data.message != "stop") {
     console.log('Contenu du message:', message.data);
     
-    const csvDirectory = './outputTest';
+    const csvDirectory = './output';
     //const csvDirectory = './outputTest';
     const filePath = path.join(csvDirectory, message.data.message);
     const etablissements = []
