@@ -1,88 +1,89 @@
-const mongoose = require('mongoose');
+
 const fs = require('fs');
 const csv = require('csv-parser');
 const path = require('path');
-
-const startTime = new Date();
+const mongoose = require('mongoose');
 
 const EtablissementSchema = new mongoose.Schema({
-  siren: String,
-  nic: String,
-  siret: String,
-  dateCreationEtablissement: Date,
-  dateDernierTraitementEtablissement: Date,
-  typeVoieEtablissement: String,
-  libelleVoieEtablissement: String,
-  codePostalEtablissement: String,
-  libelleCommuneEtablissement: String,
-  codeCommuneEtablissement: String,
-  dateDebut: Date,
-  etatAdministratifEtablissement: String
+  "siren": String,
+  "nic": String,
+  "siret": String,
+  "dateCreationEtablissement": Date,
+  "dateDernierTraitementEtablissement": Date,
+  "typeVoieEtablissement": String,
+  "libelleVoieEtablissement": String,
+  "codePostalEtablissement": String,
+  "libelleCommuneEtablissement": String,
+  "codeCommuneEtablissement": String,
+  "dateDebut": Date,
+  "etatAdministratifEtablissement": String
 });
 
 const Etablissement = mongoose.model('Etablissement', EtablissementSchema);
 
-mongoose.connect('mongodb://localhost:27017/sirene', { useNewUrlParser: true, useUnifiedTopology: true });
+function sendReadyForNextMessage(){
+  process.send({
+    type: 'reponse:msg',
+    data: {
+      response: 'received',
+    },
+  });
+};
 
-const csvDirectory = './output';
-const files = fs.readdirSync(csvDirectory).filter((file) => file.endsWith('.csv'));
+// mongoose.connect('mongodb://localhost:27017/sirene');
+mongoose.connect('mongodb+srv://yannmallolpro:1234@cluster0.j4o0v1g.mongodb.net/sirene').then(async () => {
+    console.log('Connecté à MongoDB Atlas');
+  }).catch((err) => {
+    console.error('Erreur de connexion à MongoDB Atlas:', err);
+  });
 
-const workerCount = 4;
-
-const distributionPlan = Array.from({ length: workerCount }, () => []);
-
-files.forEach((file, index) => {
-  const workerIndex = index % workerCount;  
-  distributionPlan[workerIndex].push(file);
-});
-
-const workerIndex = parseInt(process.env.pm_id, 10)
-
-// Obtenir les fichiers attribués à ce worker
-const filesToProcess = distributionPlan[workerIndex];
-
-// Traiter les fichiers CSV et les insérer dans MongoDB
-filesToProcess.forEach((file) => {
-  const filePath = path.join(csvDirectory, file);
-let isFirstLine = true;
-  fs.createReadStream(filePath)
-    .pipe(csv())
-    .on('data', async (data) => {
-		 if (isFirstLine) {
-            isFirstLine = false;
-            continue;
-        }
-		 const fields = line.split(',');
-
-        if (fields.length < 46) {
-            console.log(' Nombre insuffisant');
-            continue;
-        }
-      try {
-	   const newData = {
-            siren: fields[0],
-            nic: fields[1],
-            siret: fields[2],
-            dateCreationEtablissement: fields[4],
-            dateDernierTraitementEtablissement: fields[8],
-            typeVoieEtablissement: fields[16],
-            libelleVoieEtablissement: fields[17],
-            codePostalEtablissement: fields[18],
-            libelleCommuneEtablissement: fields[19],
-            codeCommuneEtablissement: fields[22],
-            dateDebut: fields[44],
-            etatAdministratifEtablissement: fields[45],
+process.on('message', (message) => {
+  console.log('Message reçu du processus parent:', message);
+  
+  if (message.type === 'process:msg' && message.data && message.data.message != "stop") {
+    console.log('Contenu du message:', message.data);
+    
+    const csvDirectory = './outputTest';
+    //const csvDirectory = './outputTest';
+    const filePath = path.join(csvDirectory, message.data.message);
+    const etablissements = []
+    new Promise((resolve, reject) => {
+      fs.createReadStream(filePath)
+      .pipe(csv()) 
+      .on('data', (lineObject) => {
+        
+        const etablissement = {
+          siren: lineObject.siren,
+          nic: lineObject.nic,
+          siret: lineObject.siret,
+          dateCreationEtablissement: lineObject.dateCreationEtablissement,
+          dateDernierTraitementEtablissement: lineObject.dateDernierTraitementEtablissement,
+          typeVoieEtablissement: lineObject.typeVoieEtablissement,
+          libelleVoieEtablissement: lineObject.libelleVoieEtablissement,
+          codePostalEtablissement: lineObject.codePostalEtablissement,
+          libelleCommuneEtablissement: lineObject.libelleCommuneEtablissement,
+          codeCommuneEtablissement: lineObject.codeCommuneEtablissement,
+          dateDebut: lineObject.dateDebut,
+          etatAdministratifEtablissement: lineObject.etatAdministratifEtablissement,
         };
-        await Etablissement.create(newData);
-      } catch (err) {
-        console.error(`Erreur lors de l'insertion de données depuis ${file}:`, err);
-      }
-    })
-    .on('end', () => {
-      console.log(`Fichier traité : ${filePath}`);
+        etablissements.push(etablissement);
+        console.log("reading")
+        
+        
+      }).on('end', () => {
+        resolve(); // Indique que la lecture du CSV est terminée
+      }).on('error', (err) => {
+        reject(err);
+      });
+    }).then(async () => {
+      await Etablissement.insertMany(etablissements);
+      sendReadyForNextMessage()
+      console.log('Insertion réussie des données.');
+    }).catch((err) => {
+      console.error('Erreur lors de l\'insertion des données:', err);
     });
+  }
 });
 
-const endTime = new Date();
-const timeTaken = (endTime - startTime) / 1000;
-console.log(`Temps d'indexation : ${timeTaken} secondes`);
+//workder ready
+sendReadyForNextMessage()
